@@ -1,6 +1,7 @@
 import os
 import csv
 import wave
+import cv2
 import sys
 import numpy as np
 import pandas as pd
@@ -60,6 +61,31 @@ def get_audio(path_to_wav, filename, params=Constants()):
     samples = np.fromstring(content, dtype=params.types[sampwidth])
     return (nchannels, sampwidth, framerate, nframes, comptype, compname), samples
 
+def get_avi(path_to_avi, filename):
+    avi = cv2.VideoCapture(path_to_avi + filename)
+    
+    framerate = avi.get(cv2.CAP_PROP_FPS)
+    frame_count = int(avi.get(cv2.CAP_PROP_FRAME_COUNT))
+    width = int(avi.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(avi.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    frames = []
+
+    while True:
+        
+        ret, frame = avi.read()
+
+        if not ret:
+            break
+        
+        frames.append(frame)
+       
+
+    avi.release()
+
+    #frames_np = np.array(frames)
+
+    return (framerate, frame_count, width, height), frames
 
 def get_transcriptions(path_to_transcriptions, filename, params=Constants()):
     f = open(path_to_transcriptions + filename, 'r').read()
@@ -81,7 +107,28 @@ def emotion_to_distribution(emotions, params=Constants()):
     for e in emotions:
         distribution[params.emotion_to_id[e]] += ratio
     return distribution
+
+def emotion_to_hard_label(emotions, params=Constants()):
+    emotion_count = {emo: 0 for emo in params.available_emotions}
+
+    for emo in emotions:
+        if emo in emotion_count:
+            emotion_count[emo] += 1
     
+    max_count = max(emotion_count.values())
+
+    most_common_emo = [emo for emo, count in emotion_count.items() if count == max_count]
+
+    
+    hard_label = []
+    for emo in most_common_emo:
+        emoh = [0.0]*len(params.available_emotions)
+        emoh[params.emotion_to_id[emo]] = 1.0
+        hard_label.append(emoh)
+        
+    return hard_label
+
+        
     
 
 def get_emotions(path_to_emotions, filename, params=Constants()):
@@ -107,6 +154,7 @@ def get_emotions(path_to_emotions, filename, params=Constants()):
         
         j = 1
         emos = []
+        emoh = []
         while g[j][0] == "C":
             head = g[j]
             start_idx = head.find("\t") + 1
@@ -117,12 +165,14 @@ def get_emotions(path_to_emotions, filename, params=Constants()):
                 start_idx = idx + 1
                 idx = head.find(";", start_idx)
             emos.append(evoluator_emo)
+            emoh.append(evoluator_emo)
             j += 1
         flattened = [item for sublist in emos for item in sublist]
         for emo in flattened:
             if emo not in params.available_emotions:
                 flattened.remove(emo)
         emos = emotion_to_distribution(flattened)
+        emoh = emotion_to_hard_label(flattened)        
 
         emotion.append({'start': start_time,
                         'end': end_time,
@@ -131,7 +181,8 @@ def get_emotions(path_to_emotions, filename, params=Constants()):
                         'a': a,
                         'd': d,
                         'emotion': emo,
-                        'emo_evo': emos})
+                        'emo_evo': emos,
+                        'emo_hard_label': emoh})
     return emotion
 
 
@@ -151,6 +202,30 @@ def split_wav(wav, emotions, params=Constants()):
 
         frames.append({'left': e['left'], 'right': e['right']})
     return frames
+
+def split_avi(avi, emotions, params=Constants()):
+    (framerate, frame_count, width, height), frames = avi
+
+    frames_segments = []
+
+    for ie, e in enumerate(emotions):
+
+        start = e['start']
+        end = e['end']
+
+        start_frame_idx = int(start * framerate)
+        end_frame_idx = int(end * framerate)
+
+        start_frame_idx = max(0, min(start_frame_idx, frame_count - 1))
+        end_frame_idx = max(0, min(end_frame_idx, frame_count))
+
+        frames_segment = frames[start_frame_idx:end_frame_idx]
+
+        e['frames'] = frames_segment
+        
+        frames_segments.append({'frames':frames_segment})
+    
+    return frames_segments
 
 
 def read_iemocap_data(params=Constants()):

@@ -1,11 +1,13 @@
 import os
 import csv
 import wave
-import cv2
 import sys
 import numpy as np
 import pandas as pd
 import glob
+import cv2
+from decord import VideoReader
+from decord import cpu
 from sklearn.preprocessing import label_binarize
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
@@ -62,30 +64,14 @@ def get_audio(path_to_wav, filename, params=Constants()):
     return (nchannels, sampwidth, framerate, nframes, comptype, compname), samples
 
 def get_avi(path_to_avi, filename):
-    avi = cv2.VideoCapture(path_to_avi + filename)
-    
-    framerate = avi.get(cv2.CAP_PROP_FPS)
-    frame_count = int(avi.get(cv2.CAP_PROP_FRAME_COUNT))
-    width = int(avi.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(avi.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    full_path = path_to_avi + filename
+    with open(full_path, 'rb') as f:
+        vr = VideoReader(f, ctx=cpu(0))
 
-    frames = []
-
-    while True:
-        
-        ret, frame = avi.read()
-
-        if not ret:
-            break
-        
-        frames.append(frame)
-       
-
-    avi.release()
-
-    #frames_np = np.array(frames)
-
-    return (framerate, frame_count, width, height), frames
+    framerate = vr.get_avg_fps()
+    frame_count = len(vr)
+    (height, width, channel) = vr[0].shape
+    return (framerate, frame_count, width, height), vr
 
 def get_transcriptions(path_to_transcriptions, filename, params=Constants()):
     f = open(path_to_transcriptions + filename, 'r').read()
@@ -203,27 +189,63 @@ def split_wav(wav, emotions, params=Constants()):
         frames.append({'left': e['left'], 'right': e['right']})
     return frames
 
-def split_avi(avi, emotions, params=Constants()):
-    (framerate, frame_count, width, height), frames = avi
+def split_avi(avi, emotions, params=Constants(),batch_size=32):
+    """
+    splits the avi file into segments based on the emotion annotations, each frame size is 360x240x3
+    """
+    (framerate, frame_count, width, height), vr = avi
 
     frames_segments = []
 
     for ie, e in enumerate(emotions):
-
         start = e['start']
         end = e['end']
+        id = e['id']
+        direction = "right" if id[5] != id[-4] else "left"
 
+        # Set crop dimensions based on direction
+        crop_x = 360 if direction == "right" else 0
+        crop_y, crop_w, crop_h = 120, 360, 240
+
+        # Calculate frame indices
         start_frame_idx = int(start * framerate)
         end_frame_idx = int(end * framerate)
-
         start_frame_idx = max(0, min(start_frame_idx, frame_count - 1))
         end_frame_idx = max(0, min(end_frame_idx, frame_count))
-
-        frames_segment = frames[start_frame_idx:end_frame_idx]
-
-        e['frames'] = frames_segment
+        if start_frame_idx >= end_frame_idx:
+            continue
         
-        frames_segments.append({'frames':frames_segment})
+        frames_list = []
+        # Process in batches
+        for batch_start in range(start_frame_idx, end_frame_idx, batch_size):
+            batch_end = min(batch_start + batch_size, end_frame_idx)
+            frame_indices = list(range(batch_start, batch_end))
+            
+            # Read batch
+            batch_frames = vr.get_batch(frame_indices).asnumpy()
+            
+            # Crop entire batch at once
+            # batch_frames shape is (batch_size, height, width, channels)
+            batch_frames = batch_frames[:,crop_y:crop_y+crop_h,crop_x:crop_x+crop_w, :]
+            # Apply color correction to entire batch
+            processed_frames = []
+            for frame in batch_frames:
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # Convert RGB to BGR
+                if direction == "left":
+                    frame = frame.astype(float)
+                    frame[..., 2] *= 0.77  # Reduce red channel
+                    frame = np.clip(frame, 0, 255).astype(np.uint8)
+                processed_frames.append(frame)
+            
+            # Convert back to batch format
+            batch_frames = np.stack(processed_frames)
+            frames_list.append(batch_frames)
+        
+        # Concatenate all batches
+        if frames_list:
+            all_frames = np.concatenate(frames_list, axis=0)
+            frames_segments.append({'frames': all_frames})
+    del vr
     
     return frames_segments
 

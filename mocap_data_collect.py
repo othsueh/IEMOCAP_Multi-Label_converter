@@ -22,7 +22,7 @@ optimizer = 'Adadelta'
 
 
 code_path = os.path.dirname(os.path.realpath(os.getcwd()))
-emotions_used = np.array(['ang', 'exc', 'neu', 'sad'])
+#emotions_used = np.array(['ang', 'exc', 'neu', 'sad'])
 data_path = "./IEMOCAP"
 sessions = ['Session1', 'Session2', 'Session3', 'Session4', 'Session5']
 framerate = 16000
@@ -96,6 +96,7 @@ def read_iemocap_mocap():
         path_to_wav = data_path + session + '/dialog/wav/'
         path_to_emotions = data_path + session + '/dialog/EmoEvaluation/'
         path_to_transcriptions = data_path + session + '/dialog/transcriptions/'
+        path_to_avi = data_path + session + '/dialog/avi/DivX/'
         path_to_mocap_hand = data_path + session + '/dialog/MOCAP_hand/'
         path_to_mocap_rot = data_path + session + '/dialog/MOCAP_rotated/'
         path_to_mocap_head = data_path + session + '/dialog/MOCAP_head/'
@@ -118,9 +119,11 @@ def read_iemocap_mocap():
                 mocap_f = 'Ses05M_script01_1' 
             
             wav = get_audio(path_to_wav, f + '.wav')
+            avi = get_avi(path_to_avi, f + '.avi')
             transcriptions = get_transcriptions(path_to_transcriptions, f + '.txt')
             emotions = get_emotions(path_to_emotions, f + '.txt')
             sample = split_wav(wav, emotions)
+            avi_sample = split_avi(avi, emotions)
 
             for ie, e in enumerate(emotions):
                 '''if 'F' in e['id']:
@@ -131,14 +134,11 @@ def read_iemocap_mocap():
                 e['signal'] = sample[ie]['left']
                 e.pop("left", None)
                 e.pop("right", None)
+                e['video'] = avi_sample[ie]['frames']
                 e['transcription'] = transcriptions[e['id']]
-                #e['mocap_hand'] = get_mocap_hand(path_to_mocap_hand, mocap_f + '.txt', e['start'], e['end'])
-                #e['mocap_rot'] = get_mocap_rot(path_to_mocap_rot, mocap_f + '.txt', e['start'], e['end'])
-                #e['mocap_head'] = get_mocap_head(path_to_mocap_head, mocap_f + '.txt', e['start'], e['end'])
-                if e['emotion'] in emotions_used:
-                    if e['id'] not in ids:
-                        data.append(e)
-                        ids[e['id']] = 1
+            if e['id'] not in ids:
+                data.append(e)
+                ids[e['id']] = 1
 
                         
     sort_key = get_field(data, "id")

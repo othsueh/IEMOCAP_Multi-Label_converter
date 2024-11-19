@@ -1,4 +1,3 @@
-!#/usr/bin/env python3
 import numpy as np
 import os
 import sys
@@ -8,6 +7,7 @@ import copy
 import math
 
 from sklearn.preprocessing import label_binarize
+from tqdm import tqdm
 
 
 from utils import *
@@ -23,7 +23,7 @@ optimizer = 'Adadelta'
 
 code_path = os.path.dirname(os.path.realpath(os.getcwd()))
 #emotions_used = np.array(['ang', 'exc', 'neu', 'sad'])
-data_path = "./IEMOCAP"
+data_path = "../IEMOCAP/"
 sessions = ['Session1', 'Session2', 'Session3', 'Session4', 'Session5']
 framerate = 16000
 
@@ -92,14 +92,11 @@ def get_mocap_head(path_to_mocap_head, filename, start,end):
 def read_iemocap_mocap():
     data = []
     ids = {}
-    for session in sessions:
+    for session in tqdm(sessions, "Processing Sessions" ):
         path_to_wav = data_path + session + '/dialog/wav/'
         path_to_emotions = data_path + session + '/dialog/EmoEvaluation/'
         path_to_transcriptions = data_path + session + '/dialog/transcriptions/'
         path_to_avi = data_path + session + '/dialog/avi/DivX/'
-        path_to_mocap_hand = data_path + session + '/dialog/MOCAP_hand/'
-        path_to_mocap_rot = data_path + session + '/dialog/MOCAP_rotated/'
-        path_to_mocap_head = data_path + session + '/dialog/MOCAP_head/'
 
         files2 = os.listdir(path_to_wav)
 
@@ -112,7 +109,7 @@ def read_iemocap_mocap():
                     files.append(f[:-4])
                     
 
-        for f in files:       
+        for f in tqdm(files, desc=f"Processing {session} files", leave=False):
             print(f)
             mocap_f = f
             if (f== 'Ses05M_script01_1b'):
@@ -122,19 +119,14 @@ def read_iemocap_mocap():
             avi = get_avi(path_to_avi, f + '.avi')
             transcriptions = get_transcriptions(path_to_transcriptions, f + '.txt')
             emotions = get_emotions(path_to_emotions, f + '.txt')
-            sample = split_wav(wav, emotions)
-            avi_sample = split_avi(avi, emotions)
+            sample = split_wav(wav, emotions, data_path=data_path)
+            avi_sample = split_avi(avi, emotions, data_path=data_path)
 
             for ie, e in enumerate(emotions):
-                '''if 'F' in e['id']:
-                    e['signal'] = sample[ie]['left']
-                else:
-                    e['signal'] = sample[ie]['right']'''
-                
-                e['signal'] = sample[ie]['left']
-                e.pop("left", None)
-                e.pop("right", None)
-                e['video'] = avi_sample[ie]['frames']
+                id = e['id']
+                direction = "right" if id[5] != id[-4] else "left"
+                e['audio'] = sample[ie] # contains path to .npy file and metadate
+                e['video'] = avi_sample[ie] # contains path to .npy file and metadate
                 e['transcription'] = transcriptions[e['id']]
             if e['id'] not in ids:
                 data.append(e)

@@ -172,30 +172,62 @@ def get_emotions(path_to_emotions, filename, params=Constants()):
     return emotion
 
 
-def split_wav(wav, emotions, params=Constants()):
-    (nchannels, sampwidth, framerate, nframes, comptype, compname), samples = wav
+def split_wav(wav, emotions, params=Constants(), data_path=None, output_dir=None):
+    """
+    Splits the wav file into segments and saves as .npy files
+    Returns metadata including paths to saved audio segments
+    """
+    if output_dir is None:
+        output_dir = os.path.join(data_path, "processed_audio")
+    os.makedirs(output_dir, exist_ok=True)
 
+    (nchannels, sampwidth, framerate, nframes, comptype, compname), samples = wav
     left = samples[0::nchannels]
     right = samples[1::nchannels]
 
-    frames = []
+    segments_info = []
     for ie, e in enumerate(emotions):
         start = e['start']
         end = e['end']
+        id = e['id']
+        
+        # Determine which channel to use based on speaker ID
+        direction = "right" if id[5] != id[-4] else "left"
+        audio_data = right if direction == "right" else left
+        
+        # Extract segment
+        start_idx = int(start * framerate)
+        end_idx = int(end * framerate)
+        segment = audio_data[start_idx:end_idx]
+        
+        # Save as .npy file
+        npy_path = os.path.join(output_dir, f"{id}.npy")
+        np.save(npy_path, segment)
+        
+        segments_info.append({
+            'audio_path': npy_path,
+            'n_samples': len(segment),
+            'framerate': framerate,
+            'sampwidth': sampwidth,
+            'direction': direction
+        })
+        
+        # Clear memory
+        del segment
 
-        e['right'] = right[int(start * framerate):int(end * framerate)]
-        e['left'] = left[int(start * framerate):int(end * framerate)]
+    return segments_info
 
-        frames.append({'left': e['left'], 'right': e['right']})
-    return frames
-
-def split_avi(avi, emotions, params=Constants(),batch_size=32):
+def split_avi(avi, emotions, params=Constants(),batch_size=32,data_path=None,output_dir=None):
     """
     splits the avi file into segments based on the emotion annotations, each frame size is 360x240x3
     """
+    if output_dir is None:
+        output_dir = os.path.join(data_path, "processed_videoframes")
+    os.makedirs(output_dir, exist_ok=True)
+
     (framerate, frame_count, width, height), vr = avi
 
-    frames_segments = []
+    segments_info = []
 
     for ie, e in enumerate(emotions):
         start = e['start']
@@ -212,42 +244,45 @@ def split_avi(avi, emotions, params=Constants(),batch_size=32):
         end_frame_idx = int(end * framerate)
         start_frame_idx = max(0, min(start_frame_idx, frame_count - 1))
         end_frame_idx = max(0, min(end_frame_idx, frame_count))
+        
         if start_frame_idx >= end_frame_idx:
             continue
         
-        frames_list = []
-        # Process in batches
-        for batch_start in range(start_frame_idx, end_frame_idx, batch_size):
-            batch_end = min(batch_start + batch_size, end_frame_idx)
-            frame_indices = list(range(batch_start, batch_end))
-            
-            # Read batch
-            batch_frames = vr.get_batch(frame_indices).asnumpy()
-            
-            # Crop entire batch at once
-            # batch_frames shape is (batch_size, height, width, channels)
-            batch_frames = batch_frames[:,crop_y:crop_y+crop_h,crop_x:crop_x+crop_w, :]
-            # Apply color correction to entire batch
-            processed_frames = []
-            for frame in batch_frames:
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # Convert RGB to BGR
-                if direction == "left":
-                    frame = frame.astype(float)
-                    frame[..., 2] *= 0.77  # Reduce red channel
-                    frame = np.clip(frame, 0, 255).astype(np.uint8)
-                processed_frames.append(frame)
-            
-            # Convert back to batch format
-            batch_frames = np.stack(processed_frames)
-            frames_list.append(batch_frames)
+        # Get all frames for this segment
+        frame_indices = list(range(start_frame_idx, end_frame_idx))
+        frames = vr.get_batch(frame_indices).asnumpy()
         
-        # Concatenate all batches
-        if frames_list:
-            all_frames = np.concatenate(frames_list, axis=0)
-            frames_segments.append({'frames': all_frames})
-    del vr
+        # Process frames
+        processed_frames = []
+        for frame in frames:
+            frame = frame[crop_y:crop_y+crop_h, crop_x:crop_x+crop_w, :]
+            
+            if direction == "left":
+                frame = frame.astype(float)
+                frame[..., 2] *= 0.77  # Reduce red channel
+                frame = np.clip(frame, 0, 255).astype(np.uint8)
+            
+            processed_frames.append(frame)
+        
+        processed_frames = np.array(processed_frames)
+        
+        # Save as .npy file
+        npy_path = os.path.join(output_dir, f"{id}.npy")
+        np.save(npy_path, processed_frames)
+        
+        segments_info.append({
+            'frames_path': npy_path,
+            'n_frames': len(processed_frames),
+            'frame_size': (crop_h, crop_w),
+            'framerate': framerate
+        })
+        
+        # Clear memory
+        del processed_frames
+        del frames
     
-    return frames_segments
+    del vr
+    return segments_info
 
 
 def read_iemocap_data(params=Constants()):

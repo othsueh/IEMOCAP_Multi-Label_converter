@@ -98,11 +98,11 @@ def read_iemocap_mocap():
         path_to_transcriptions = data_path + session + '/dialog/transcriptions/'
         path_to_avi = data_path + session + '/dialog/avi/DivX/'
 
-        files2 = os.listdir(path_to_wav)
+        files2 = os.listdir(path_to_emotions)
 
         files = []
         for f in files2:
-            if f.endswith(".wav"):
+            if f.endswith(".txt"):
                 if f[0] == '.':
                     files.append(f[2:-4])
                 else:
@@ -110,11 +110,6 @@ def read_iemocap_mocap():
                     
 
         for f in tqdm(files, desc=f"Processing {session} files", leave=False):
-            print(f)
-            mocap_f = f
-            if (f== 'Ses05M_script01_1b'):
-                mocap_f = 'Ses05M_script01_1' 
-            
             wav = get_audio(path_to_wav, f + '.wav')
             avi = get_avi(path_to_avi, f + '.avi')
             transcriptions = get_transcriptions(path_to_transcriptions, f + '.txt')
@@ -124,13 +119,12 @@ def read_iemocap_mocap():
 
             for ie, e in enumerate(emotions):
                 id = e['id']
-                direction = "right" if id[5] != id[-4] else "left"
                 e['audio'] = sample[ie] # contains path to .npy file and metadate
                 e['video'] = avi_sample[ie] # contains path to .npy file and metadate
                 e['transcription'] = transcriptions[e['id']]
-            if e['id'] not in ids:
-                data.append(e)
-                ids[e['id']] = 1
+                if e['id'] not in ids:
+                    data.append(e)
+                    ids[e['id']] = 1
 
                         
     sort_key = get_field(data, "id")
@@ -139,5 +133,5 @@ def read_iemocap_mocap():
 data = read_iemocap_mocap()
 
 import pickle
-with open(data_path + '/./'+'data_collected.pickle', 'w') as handle:
+with open(data_path + '/./'+'data_collected.pickle', 'wb') as handle:
     pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)

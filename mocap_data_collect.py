@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import sys
+import pickle
 
 import wave
 import copy
@@ -90,9 +91,10 @@ def get_mocap_head(path_to_mocap_head, filename, start,end):
 
 
 def read_iemocap_mocap():
-    data = []
-    ids = {}
+    
     for session in tqdm(sessions, "Processing Sessions" ):
+        data = []
+        ids = {}
         path_to_wav = data_path + session + '/dialog/wav/'
         path_to_emotions = data_path + session + '/dialog/EmoEvaluation/'
         path_to_transcriptions = data_path + session + '/dialog/transcriptions/'
@@ -125,13 +127,24 @@ def read_iemocap_mocap():
                 if e['id'] not in ids:
                     data.append(e)
                     ids[e['id']] = 1
+        print(f"Present utterances count: {len(data)}")
 
-                        
-    sort_key = get_field(data, "id")
-    return np.array(data)[np.argsort(sort_key)]
-    
-data = read_iemocap_mocap()
+        sort_key = get_field(data, "id")
+        session_data = np.array(data)[np.argsort(sort_key)]
 
-import pickle
-with open(data_path + '/./'+'data_collected.pickle', 'wb') as handle:
-    pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(data_path + f'{session}_data_collected.pickle', 'wb') as handle:
+            pickle.dump(session_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"Data Collected for {session} session")
+
+def main():
+    read_iemocap_mocap()
+    data = []
+    for session in sessions:
+        with open(data_path + f'{session}_data_collected.pickle', 'rb') as handle:
+            data.extend(pickle.load(handle))
+    with open(data_path + 'data_collected.pickle', 'wb') as handle:
+        pickle.dump(data, handle)
+    print('Length of data:', len(data))
+
+if __name__ == "__main__":
+    main()

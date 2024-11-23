@@ -70,8 +70,7 @@ def get_avi(path_to_avi, filename):
 
     framerate = vr.get_avg_fps()
     frame_count = len(vr)
-    (height, width, channel) = vr[0].shape
-    return (framerate, frame_count, width, height), vr
+    return (framerate, frame_count), vr
 
 def get_transcriptions(path_to_transcriptions, filename, params=Constants()):
     f = open(path_to_transcriptions + filename, 'r').read()
@@ -225,7 +224,7 @@ def split_avi(avi, emotions, params=Constants(),batch_size=32,data_path=None,out
         output_dir = os.path.join(data_path, "processed_videoframes")
     os.makedirs(output_dir, exist_ok=True)
 
-    (framerate, frame_count, width, height), vr = avi
+    (framerate, frame_count), vr = avi
 
     segments_info = []
 
